@@ -1,110 +1,113 @@
 plugins {
-    id 'fabric-loom' version "${loom_version}"
-    id 'maven-publish'
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	id 'maven-publish'
 }
 
 version = "${project.mod_version}+${project.target_version}"
 group = project.maven_group
 
 base {
-    archivesName = project.archives_base_name
+	archivesName = project.archives_base_name
 }
 
-
-
 repositories {
-    maven { url "https://jitpack.io" }
-    // Add repositories to retrieve artifacts from in here.
-    // You should only use this when depending on other mods because
-    // Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-    // See https://docs.gradle.org/current/userguide/declaring_repositories.html
-    // for more information about repositories.
+	maven { url "https://jitpack.io" }
 }
 
 dependencies {
-    // To change the versions see the gradle.properties file
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "dev.tildejustin:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    // SpeedrunAPI
-    // check for the latest versions at https://jitpack.io/#contariaa/speedrunapi
-    modImplementation "com.github.contariaa:SpeedrunAPI:96811e85e8"
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	// Optional config UI. Transitive Minecraft 26.1 artifacts must not override 26.2.
+	compileOnly("com.github.contariaa:SpeedrunAPI:${project.speedrunapi_version}") {
+		transitive = false
+	}
 }
 
 processResources {
-    inputs.property "version", project.version
-    inputs.property "minecraft_version", project.minecraft_version
-    inputs.property "loader_version", project.loader_version
-    filteringCharset "UTF-8"
+	def version = project.version
+	inputs.property "version", version
 
-    filesMatching("fabric.mod.json") {
-        expand "version": project.version,
-                "minecraft_version": project.minecraft_version,
-                "loader_version": project.loader_version
-    }
+	filesMatching("fabric.mod.json") {
+		expand "version": version
+	}
 }
+
 tasks.withType(JavaCompile).configureEach {
-    // ensure that the encoding is set to UTF-8, no matter what the system default is
-    // this fixes some edge cases with special characters not displaying correctly
-    // see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
-    // If Javadoc is generated, this must be specified in that task too.
-    it.options.encoding = "UTF-8"
-}
-
-tasks.register('generateJniHeaders', Exec) {
-    description = 'Generate JNI headers for MacPresentationUtil'
-    group = 'build'
-    
-    dependsOn 'compileJava'
-    
-    inputs.files 'src/main/java/com/slackow/boundlesswindow/MacPresentationUtil.java'
-    outputs.file 'build/generated/sources/headers/java/main/com_slackow_boundlesswindow_MacPresentationUtil.h'
-    
-    doFirst {
-        file('build/generated/sources/headers/java/main').mkdirs()
-    }
-    
-    executable 'javac'
-    args '-h', 'build/generated/sources/headers/java/main'
-    args '-cp', sourceSets.main.output.classesDirs.asPath
-    args 'src/main/java/com/slackow/boundlesswindow/MacPresentationUtil.java'
+	it.options.encoding = "UTF-8"
+	it.options.release = 25
 }
 
 java {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
 }
 
 jar {
-    from("LICENSE") {
-        rename { "${it}_${project.archivesBaseName}" }
-    }
+	def archiveName = project.base.archivesName.get()
+	from("LICENSE.txt") {
+		rename { "${it}_${archiveName}" }
+	}
 }
 
+tasks.register('generateJniHeaders', Exec) {
+	description = 'Generate JNI headers for MacPresentationUtil'
+	group = 'build'
+
+	dependsOn 'compileJava'
+
+	inputs.files 'src/main/java/com/slackow/boundlesswindow/MacPresentationUtil.java'
+	outputs.file 'build/generated/sources/headers/java/main/com_slackow_boundlesswindow_MacPresentationUtil.h'
+
+	doFirst {
+		file('build/generated/sources/headers/java/main').mkdirs()
+	}
+
+	executable "${System.getProperty('java.home')}/bin/javac"
+	args '-h', 'build/generated/sources/headers/java/main'
+	args '-cp', sourceSets.main.output.classesDirs.asPath
+	args 'src/main/java/com/slackow/boundlesswindow/MacPresentationUtil.java'
+}
 
 tasks.register('buildMacUtilNative', Exec) {
+	description = 'Compile universal libmacutil.dylib for macOS'
+	group = 'build'
 
-    description = 'Compile universal libmacutil.dylib for macOS'
-    group = 'build'
+	inputs.files 'src/native/MacUtilJNI.m'
+	outputs.file 'src/main/resources/natives/darwin/libmacutil.dylib'
 
-    inputs.files  'src/native/MacUtilJNI.m'
-    outputs.file 'src/main/resources/natives/darwin/libmacutil.dylib'
+	dependsOn 'generateJniHeaders'
 
-    dependsOn 'generateJniHeaders'
+	doFirst {
+		def jdkHome = System.getProperty('java.home')
 
-    doFirst {
-        def jdkHome = System.getProperty('java.home')
-
-        commandLine 'clang',
-                '-std=gnu11', '-fobjc-arc', '-mmacosx-version-min=10.13',
-                '-arch', 'x86_64', '-arch', 'arm64',
-                '-Isrc/native', '-Ibuild/generated/sources/headers/java/main',
-                "-I${jdkHome}/include", "-I${jdkHome}/include/darwin",
-                '-framework', 'Cocoa',
-                '-dynamiclib', 'src/native/MacUtilJNI.m',
-                '-o', 'src/main/resources/natives/darwin/libmacutil.dylib'
-    }
+		commandLine 'clang',
+				'-std=gnu11', '-fobjc-arc', '-mmacosx-version-min=10.13',
+				'-arch', 'x86_64', '-arch', 'arm64',
+				'-Isrc/native', '-Ibuild/generated/sources/headers/java/main',
+				"-I${jdkHome}/include", "-I${jdkHome}/include/darwin",
+				'-framework', 'Cocoa',
+				'-dynamiclib', 'src/native/MacUtilJNI.m',
+				'-o', 'src/main/resources/natives/darwin/libmacutil.dylib'
+	}
 }
 
 tasks.named("processResources").configure {
-    dependsOn "buildMacUtilNative"
+	dependsOn "buildMacUtilNative"
+}
+
+tasks.named("sourcesJar").configure {
+	dependsOn "buildMacUtilNative"
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	repositories {
+	}
 }

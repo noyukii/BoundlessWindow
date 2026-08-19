@@ -1,9 +1,8 @@
 package com.slackow.boundlesswindow.mixin;
 
+import com.mojang.blaze3d.platform.Window;
 import com.slackow.boundlesswindow.WindowControlServer;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.util.Window;
-import org.spongepowered.asm.mixin.Final;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -13,12 +12,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.io.IOException;
 
-@Mixin(MinecraftClient.class)
-public abstract class MinecraftClientMixin {
+@Mixin(Minecraft.class)
+public abstract class MinecraftMixin {
 
-    @Shadow @Final private Window window;
+    @Shadow
+    public abstract Window getWindow();
 
-    @Unique private WindowControlServer windowControlServer;
+    @Unique
+    private WindowControlServer windowControlServer;
 
     @Inject(method = "<init>", at = @At("TAIL"))
     private void onInit(CallbackInfo ci) throws IOException {
@@ -28,7 +29,7 @@ public abstract class MinecraftClientMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     public void tick(CallbackInfo info) {
-        windowControlServer.tick(window);
+        windowControlServer.tick(getWindow());
     }
 
 }
